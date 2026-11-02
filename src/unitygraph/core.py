@@ -833,17 +833,26 @@ class Project:
         self.path2guid = {p: g for g, p in self.guid2path.items()}
         self.clip_names = {g: table for _, g, table in self.cache.get('clips', {}).values() if table}
         self.classes, self.by_name, self.script_cls = {}, defaultdict(list), {}
-        for p, e in self.cache['cs'].items():
+        for p, e in sorted(self.cache['cs'].items()):
             tp = is_third_party(p, self.extra_tp)
             for t in e['types']:
                 full = '.'.join(x for x in (t['ns'], t['outer'], t['name']) if x)
                 prev = self.classes.get(full)
                 if prev and prev['file'] != p:  # partial class split over files: merge the parts
-                    for k in ('fields', 'props', 'methods', 'strs', 'bases', 'attrs'):
+                    if stem(p) == t['name'] and stem(prev['file']) != t['name']:
+                        # the file named after the class is the main part (where Unity looks for it)
+                        prev['file'], prev['line'] = p, t['line']
+                        prev['files'].insert(0, p)
+                        for k in ('fields', 'props', 'methods', 'strs'):
+                            prev[k] = t[k] + [x for x in prev[k] if x not in t[k]]
+                    else:
+                        prev['files'].append(p)
+                        for k in ('fields', 'props', 'methods', 'strs'):
+                            prev[k] = prev[k] + [x for x in t[k] if x not in prev[k]]
+                    for k in ('bases', 'attrs'):
                         prev[k] = prev[k] + [x for x in t[k] if x not in prev[k]]
                     prev['idents'] = prev['idents'] | t['idents']
                     prev['summary'] = prev['summary'] or t['summary']
-                    prev['files'].append(p)
                     continue
                 t = dict(t, full=full, file=p, files=[p], project=not tp)
                 self.classes[full] = t
