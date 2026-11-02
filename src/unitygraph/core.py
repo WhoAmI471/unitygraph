@@ -25,7 +25,7 @@ import sys
 import time
 from collections import Counter, defaultdict
 
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 CACHE_VERSION = 6
 OUT_DIR = '.unitygraph'
 THIRD_PARTY = ['Assets/Packages/', 'Assets/Plugins/', 'Assets/ThirdParty/', 'Assets/Samples/',
@@ -2158,22 +2158,37 @@ const deg = {}; DATA.edges.forEach(e => {deg[e.s]=(deg[e.s]||0)+1; deg[e.t]=(deg
 const els = DATA.nodes.map(n => ({data:{...n, deg:deg[n.id]||0}}))
   .concat(DATA.edges.map((e,i) => ({data:{id:'e'+i, source:e.s, target:e.t, k:e.k}})));
 const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+// Zooming in spreads nodes apart but barely enlarges them: sizes are divided by zoom^0.85 above zoom 1,
+// so a crowded cluster opens up instead of staying a blob of overlapping circles.
+let S = 1;
+const size = n => (10 + Math.sqrt(n.data('deg')) * 5) * S;
 const cy = cytoscape({container:document.getElementById('cy'), elements:els, wheelSensitivity:0.2,
   style:[
     {selector:'node', style:{'background-color':n=>KIND[n.data('kind')]||'#888', label:'data(label)',
-      width:n=>10+Math.sqrt(n.data('deg'))*5, height:n=>10+Math.sqrt(n.data('deg'))*5,
-      'font-size':10, color:dark?'#ddd':'#222', 'text-valign':'bottom', 'text-margin-y':3,
-      'text-outline-width':2, 'text-outline-color':dark?'#141518':'#f6f5f2', 'min-zoomed-font-size':7}},
+      width:size, height:size, 'font-size':()=>10*S, color:dark?'#ddd':'#222', 'text-valign':'bottom',
+      'text-margin-y':()=>3*S, 'text-outline-width':()=>2*S, 'text-outline-color':dark?'#141518':'#f6f5f2',
+      'min-zoomed-font-size':7}},
     {selector:'node[kind="scene"]', style:{shape:'round-rectangle'}},
     {selector:'node[kind="prefab"]', style:{shape:'diamond'}},
     {selector:'node[kind="anim"]', style:{shape:'triangle'}},
-    {selector:'edge', style:{width:1, 'line-color':e=>EDGE[e.data('k')], 'target-arrow-color':e=>EDGE[e.data('k')],
+    {selector:'edge', style:{width:()=>1*S, 'line-color':e=>EDGE[e.data('k')], 'target-arrow-color':e=>EDGE[e.data('k')],
       'target-arrow-shape':'triangle', 'arrow-scale':0.6, 'curve-style':'bezier', opacity:0.35}},
-    {selector:'edge[k="inherits"]', style:{'line-style':'dashed', width:1.5}},
+    {selector:'edge[k="inherits"]', style:{'line-style':'dashed', width:()=>1.5*S}},
     {selector:'.faded', style:{opacity:0.07}},
-    {selector:'edge.lit', style:{opacity:0.9, width:1.6}},
-    {selector:'node:selected', style:{'border-width':3, 'border-color':dark?'#fff':'#000'}}],
-  layout:{name:'cose', animate:false, nodeRepulsion:()=>9000, idealEdgeLength:()=>70, gravity:0.4, numIter:1500}});
+    {selector:'edge.lit', style:{opacity:0.9, width:()=>1.6*S}},
+    {selector:'node:selected', style:{'border-width':()=>3*S, 'border-color':dark?'#fff':'#000'}}],
+  layout:{name:'cose', animate:false, nodeRepulsion:()=>20000, idealEdgeLength:()=>110, nodeOverlap:20,
+          componentSpacing:80, gravity:0.25, numIter:2000}});
+let pending = false;
+cy.on('zoom', () => {
+  if (pending) return;
+  pending = true;
+  requestAnimationFrame(() => {
+    pending = false;
+    const s = cy.zoom() > 1 ? Math.pow(cy.zoom(), -0.85) : 1;
+    if (Math.abs(s - S) > 0.01) { S = s; cy.style().update(); }
+  });
+});
 const detail = document.getElementById('detail');
 function focus(n){ cy.elements().addClass('faded').removeClass('lit');
   const hood = n.closedNeighborhood(); hood.removeClass('faded'); hood.edges().addClass('lit');
