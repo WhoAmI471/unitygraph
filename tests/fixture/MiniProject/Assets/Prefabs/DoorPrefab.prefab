@@ -41,6 +41,11 @@ MonoBehaviour:
   blockers:
     serializedVersion: 2
     m_Bits: 257
+  loot:
+    m_AssetGUID: a0000000000000000000000000000002
+    m_SubObjectName:
+    m_SubObjectType:
+    m_EditorAssetChanged: 0
 --- !u!1 &210
 GameObject:
   m_ObjectHideFlags: 0

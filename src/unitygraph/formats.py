@@ -81,7 +81,7 @@ def report_input(p, path, data):
                                  ', '.join(f'{n}={"|".join(v)}' for n, v in parts.items()) + ')')
                 elif b['path']:
                     binds.append(_ctrl(b['path']) + (f' [{b["interactions"]}]' if b['interactions'] else ''))
-            kind = a['type'] + (f' {a["control"]}' if a['control'] else '')
+            kind = a['type'] + (f' {a["control"]}' if a['control'] and a['control'] != a['type'] else '')
             extra = f' [{a["interactions"]}]' if a['interactions'] else ''
             lines.append(f'  {a["name"]} ({kind}){extra}: ' + (', '.join(binds) or '(unbound)'))
     users = _code_mentions(p, [a['name'] for m in data['maps'] for a in m['actions']])
@@ -94,8 +94,9 @@ def _code_mentions(p, names):
     """action name -> project classes whose source contains the literal "name" (FindAction, actions["..."])."""
     out = defaultdict(set)
     wanted = set(names)
-    for path, e in p.cache['cs'].items():
-        if p.classes and any(t.get('name') for t in e['types']) and not path.startswith('Assets/'):
+    from unitygraph.core import is_third_party
+    for path in p.cache['cs']:
+        if is_third_party(path, p.extra_tp):
             continue
         try:
             with open(os.path.join(p.root, path), encoding='utf-8-sig', errors='replace') as f:
@@ -186,7 +187,9 @@ def _parse_addr_group(text):
 
 def addresses(p):
     """guid -> (address, group, labels) for every Addressables entry."""
-    out = {}
+    if getattr(p, '_addresses', None) is not None:
+        return p._addresses
+    out = p._addresses = {}
     for path, e in p.files.items():
         f = e.get('fmt')
         if f and f.get('kind') == 'addr':
@@ -282,7 +285,7 @@ def report_material(p, path, data):
     odd = [f'{k}={_fmt_num(v)}' for k, v in sorted(data['floats'].items()) if typical.get(k) != v]
     if odd:
         lines.append(f'  floats{" unlike other materials on this shader" if len(same) > 1 else ""}: ' + ', '.join(odd))
-    lines.append(f'  ({len(data["floats"])} floats total; {len(same)} project materials use this shader)')
+    lines.append(f'  ({len(data["floats"])} floats total; {len(same)} materials use this shader)')
     return '\n'.join(lines)
 
 

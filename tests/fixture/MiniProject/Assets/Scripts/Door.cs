@@ -14,6 +14,7 @@ namespace Mini
         [SerializeField] private Transform hinge;
         [SerializeField] private GameObject keyPrefab;
         [SerializeField] private LayerMask blockers;
+        [SerializeField] private AssetReference loot;
         private bool busy; // runtime only
 
         public bool IsOpen => state == DoorState.Open;

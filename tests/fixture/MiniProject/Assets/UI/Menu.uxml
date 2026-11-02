@@ -1,0 +1,7 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements">
+    <Style src="project://database/Assets/UI/Menu.uss?fileID=7433441132597879392&amp;guid=a0000000000000000000000000000011&amp;type=3#Menu" />
+    <ui:VisualElement name="root" class="panel dark">
+        <ui:Label text="Storm Crew" name="title" />
+        <ui:Button text="Play" name="play" class="big" />
+    </ui:VisualElement>
+</ui:UXML>

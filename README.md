@@ -36,6 +36,21 @@ class StormCrew.Items.Carryable : Interactable   (Assets/Scripts/Items/Carryable
   used by: Bucket, CannonballPile, CargoCrate, PlayerInteractor, VoyageHud, WorldMarkers
   attached: Voyage_Brig.unity: Ship/Bucket×3, Ship/Hammer×3, Ship/Hook; Plank.prefab: Plank
 
+$ unitygraph diff Voyage_Brig --rev 798fc4f --to 5d3c7fe      # git diff: 553k changed lines
++ Characters_Anne ×12 in World Tilt/World/Harbour fort/Harbour Town, …+9  (2 objects) › ⇐Characters_Anne.fbx [+Animator]
++ Treasure fort* ×2 in World Tilt/World/Harbour fort/Island fort  (7 objects) [NetworkIdentity, BoxCollider, Treasure(gold=(40,110), …)]
++ World Tilt/World/Island pine-isle  (612 objects)
+~ Systems: LeakSpawner.firstLeakDelay: 5 → 25; LeakSpawner.intervalAtEnd: 7 → 16; LeakSpawner.intervalAtStart: 14 → 32
+
+$ unitygraph calls Carryable.IsHeld
+StormCrew.Items.Carryable.IsHeld  (Carryable.cs:39)
+  used by: CargoCrate.OnHit (CargoCrate.cs:78), CargoNet.Secures (CargoNet.cs:41), Chicken.Update (Chicken.cs:38), …
+
+$ unitygraph query "Carryable.itemType"
+Carryable.itemType over 28 components:
+  Bucket ×9  e.g. Voyage_Brig.unity:Ship/Bucket, Voyage_Caravel.unity:Ship/Bucket, …
+  Hook ×3  e.g. Voyage_Brig.unity:Ship/Hook, …
+
 $ unitygraph anim "Anne Locomotion"
 params: Speed:float, Airborne:bool, Crouch:bool, Work:bool
 layer Base Layer
@@ -54,7 +69,20 @@ layer Base Layer
 ```
 
 The plugin adds a skill that tells Claude to query the index instead of opening scene YAML,
-and puts the `unitygraph` command on Claude's Bash `PATH`. Nothing to configure per project.
+puts the `unitygraph` command on Claude's Bash `PATH`, and installs a `PreToolUse` hook that denies
+whole-file reads of Unity YAML larger than 32 KB, answering with the command to run instead
+(targeted reads with `offset`/`limit`, `grep`, `head` still pass). Nothing to configure per project.
+Set `UNITYGRAPH_GUARD=off` to disable the hook, or `UNITYGRAPH_GUARD_KB` to change the threshold.
+
+### As an MCP server (optional)
+
+For clients without a shell, or if you prefer a tool over Bash, run unitygraph as a stdio MCP server
+with one tool, `unitygraph`, whose `args` are the CLI arguments:
+
+```bash
+pipx install git+https://github.com/WhoAmI471/unitygraph
+claude mcp add unitygraph -- unitygraph mcp
+```
 
 ### As a command-line tool
 
@@ -75,11 +103,19 @@ Run them anywhere inside a Unity project (a folder with `Assets/` and `ProjectSe
 | `unitygraph scene <name> [--depth N] [--path "A/B"] [--full]` | GameObject hierarchy with components, serialized values and prefab overrides |
 | `unitygraph prefab <name>` | Same for a prefab (variants show their base) |
 | `unitygraph class <Name>` | Serialized and runtime fields, public API, RPC/attribute methods, Unity messages, uses / used by, derived types, asset paths and shaders named in code, where it is attached |
+| `unitygraph calls <Class.Method\|Method\|Class>` | Call graph: callees and callers (typed through fields, parameters, locals and `GetComponent<T>()`), property readers, `nameof`/`+=` references; for a class, who uses each member |
 | `unitygraph where <Script\|Component\|asset>` | Every object a script or built-in component sits on (directly or via prefabs), or who references an asset |
-| `unitygraph refs <asset>` | What an asset references and what references it, including code that names it by path |
+| `unitygraph query "<Class.field OP value>, …"` | Objects whose serialized values match (`= != > < >= <= ~`), with prefab instances' effective values; `"Class.field"` alone shows the distribution |
+| `unitygraph refs <asset>` | What an asset references and what references it, including code that names it by path and its Addressables address |
 | `unitygraph find "<regex>"` | GameObjects by name across project scenes and prefabs |
+| `unitygraph diff [files] [--rev REV] [--to REV]` | Semantic diff of scenes and prefabs against git: added/removed/renamed/moved objects, component and value changes, override changes |
 | `unitygraph anim <name>` | Animator controller: parameters, layers, states, blend trees, transitions with conditions |
+| `unitygraph input [name]` | Input System actions: maps, actions, bindings, composites, which code names each action |
+| `unitygraph ui <name>` | UI Toolkit: UXML element tree or USS selectors |
+| `unitygraph material <name>` | Shader, keywords, textures, colors, and floats that differ from other materials on the same shader |
+| `unitygraph addr [regex]` | Addressables: addresses, groups, labels |
 | `unitygraph asset <name>` | Fields of a ScriptableObject asset |
+| `unitygraph mcp` | Run as an MCP server (see below) |
 | `unitygraph graph` | Writes `.unitygraph/graph.html`: an interactive graph of types, scenes, prefabs and animators with their links |
 | `unitygraph build` | Writes pre-rendered copies of everything to `.unitygraph/*.md` |
 
@@ -108,7 +144,7 @@ Add `/.unitygraph/` to your `.gitignore`.
 - Text serialization only (Unity's default "Force Text" asset serialization).
 - C# is parsed with regular expressions, not a compiler: good for declarations, fields and references, not for every corner of the language.
 - Overrides on nodes *inside* model files (FBX) show as `inner:` because Unity 6 does not store their names in `.meta` files.
-- Addressables are not indexed yet.
+- The call graph types calls through fields, parameters, simple locals and `GetComponent<T>()`; calls through lambdas, LINQ or `var` from method results are reported as "likely" or missed. UnityEvents wired in the inspector, `SendMessage` and reflection are not followed.
 
 ## Development
 

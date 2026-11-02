@@ -6,6 +6,6 @@ namespace Mini
     public partial class Spawner : MonoBehaviour
     {
         public Door target;
-        public void Spawn() { }
+        public void Spawn() { target.Open(0.5f); }
     }
 }

@@ -5,9 +5,6 @@ import sys
 if not __package__:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-if len(sys.argv) > 1 and sys.argv[1] == 'guard':  # hook path: keep it light, skip loading the indexer
-    from unitygraph.guard import main
-else:
-    from unitygraph.core import main
+from unitygraph.cli import main  # noqa: E402
 
 main()

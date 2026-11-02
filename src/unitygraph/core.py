@@ -25,7 +25,7 @@ import sys
 import time
 from collections import Counter, defaultdict
 
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 CACHE_VERSION = 6
 OUT_DIR = '.unitygraph'
 THIRD_PARTY = ['Assets/Packages/', 'Assets/Plugins/', 'Assets/ThirdParty/', 'Assets/Samples/',
@@ -39,6 +39,7 @@ MODEL_ROOT_TR = '-8679921383154817045'  # ... and for its root Transform
 MODEL_EXTS = {'.fbx', '.obj', '.blend', '.dae', '.3ds', '.max', '.ma', '.mb', '.gltf', '.glb'}
 REF_KEYS = {'m_Controller': 'controller', 'm_audioClip': 'clip', 'm_Avatar': None}  # asset refs worth showing on built-ins
 GUID_RE = re.compile(rb'guid: ([0-9a-f]{32})')
+DEP_RE = re.compile(rb'(?:guid: |m_AssetGUID: |guid=)([0-9a-f]{32})')  # + AssetReference fields, UXML/USS urls
 HDR_RE = re.compile(r'--- !u!(\d+) &(-?\d+)( stripped)?')
 FULL_CLASSES = {'1', '4', '224', '1001', '114', '1660057539'}
 TRIVIAL_MOD = re.compile(r'^m_(Local(Position|Rotation|Scale|EulerAnglesHint)|Name|RootOrder|'
@@ -557,6 +558,7 @@ def _blank(m):
 
 _SHADER_CALL = re.compile(r'Shader\.Find\s*\(\s*$')
 _RES_CALL = re.compile(r'Resources\.Load(?:All|Async)?\s*(?:<[^>]*>)?\s*\(\s*$')
+_ADDR_CALL = re.compile(r'Addressables\.(?:Load\w*|Instantiate\w*|DownloadDependencies\w*)\s*(?:<[^>]*>)?\s*\(\s*$')
 
 
 def _asset_strings(src):
@@ -575,6 +577,8 @@ def _asset_strings(src):
             kind = 'shader'
         elif _RES_CALL.search(before):
             kind = 'res'
+        elif _ADDR_CALL.search(before):
+            kind = 'addr'
         elif body.startswith(('Assets/', 'Packages/')):
             kind = 'path'
         else:
@@ -855,10 +859,11 @@ class Project:
         self.dirty = self.changed = True
 
     def _refresh_assets(self, files):
+        from unitygraph import formats
         old, new = self.cache['files'], {}
         for p, mt, size in files:
             ext = os.path.splitext(p)[1]
-            if ext not in YAML_DEP_EXTS:
+            if ext not in YAML_DEP_EXTS and ext not in formats.PARSED_EXTS:
                 continue
             hit = old.get(p)
             if hit and hit['mt'] == mt and hit['size'] == size:
@@ -867,7 +872,8 @@ class Project:
             self.log('parse', p)
             with open(os.path.join(self.root, p), 'rb') as f:
                 raw = f.read()
-            entry = {'mt': mt, 'size': size, 'deps': sorted({g.decode() for g in GUID_RE.findall(raw)}), 'fm': None}
+            entry = {'mt': mt, 'size': size, 'deps': sorted({g.decode() for g in DEP_RE.findall(raw)}), 'fm': None,
+                     'fmt': formats.parse(p, raw) if ext in formats.PARSED_EXTS or ext == '.asset' else None}
             if raw.startswith(b'%YAML'):
                 want = ext == '.prefab' or (ext == '.unity' and not is_third_party(p, self.extra_tp)) or \
                     (ext == '.asset' and b'\nMonoBehaviour:' in raw[:600])
@@ -958,6 +964,7 @@ class Project:
         for p, e in self.files.items():
             for g in e['deps']:
                 self.rdeps[g].add(p)
+        self._addresses = None
         self._link_code_strings()
         self._root_cache, self._tree_cache = {}, {}
         self._derived = defaultdict(list)
@@ -972,6 +979,8 @@ class Project:
         import bisect
         shader_path = {name: p for p, (_, name) in self.cache.get('shaders', {}).items() if name}
         paths = sorted(x for x in self.path2guid if x.startswith(('Assets/', 'Packages/')))
+        from unitygraph import formats
+        addr = formats.addresses(self)
         res_index = defaultdict(list)
         for x in paths:
             if '/Resources/' in x:
@@ -991,6 +1000,10 @@ class Project:
                 elif kind == 'res':
                     hits = res_index.get(val, [])
                     label = f'Resources "{val}"' + ('' if hits else ' (missing)')
+                elif kind == 'addr':
+                    hits = [self.guid2path[g] for g, (a, _, labels) in addr.items()
+                            if (a == val or val in labels) and g in self.guid2path]
+                    label = f'Addressable "{val}"' + ('' if hits else ' (no such address or label)')
                 elif val in self.path2guid:
                     hits = [val]
                     is_dir = not os.path.splitext(val)[1]
@@ -1223,6 +1236,14 @@ class Ctx:
             keys = set(v)
             if 'm_Bits' in keys:
                 return p.layer_mask(v['m_Bits'])
+            if 'm_AssetGUID' in keys:  # Addressables AssetReference
+                g = v.get('m_AssetGUID') or ''
+                if not g:
+                    return 'null'
+                from unitygraph import formats
+                a = formats.addresses(p).get(g)
+                sub = f':{v["m_SubObjectName"]}' if v.get('m_SubObjectName') else ''
+                return '→' + p.asset_label(g) + sub + (f' (addr "{a[0]}")' if a else '')
             if keys and keys <= {'x', 'y', 'z', 'w'}:
                 return '(' + ','.join(_fmt_num(v[k]) for k in 'xyzw' if k in v) + ')'
             if keys == {'r', 'g', 'b', 'a'}:
@@ -1898,6 +1919,30 @@ def project_map(p):
         lines += ['', '## Animator controllers  (unitygraph anim <name>)']
         for key, names in ctrls.items():
             lines.append(f'- {"; ".join(key)}: ' + ', '.join(names[:8]) + (f', …+{len(names) - 8}' if len(names) > 8 else ''))
+    fmts = defaultdict(list)
+    for path, e in sorted(p.files.items()):
+        f = e.get('fmt')
+        if f and is_project_asset(p, path):
+            fmts[f['kind']].append((path, f))
+    if fmts.get('input'):
+        lines += ['', '## Input actions  (unitygraph input)']
+        for path, f in fmts['input']:
+            maps = '; '.join(f'{m["name"]}: ' + ', '.join(a['name'] for a in m['actions']) for m in f['maps'])
+            lines.append(f'- {path[7:]}: {maps}')
+    if fmts.get('uxml') or fmts.get('uss'):
+        lines += ['', '## UI Toolkit  (unitygraph ui <name>)']
+        lines.append('- ' + ', '.join(os.path.basename(x) for x, _ in fmts.get('uxml', []) + fmts.get('uss', [])))
+    if fmts.get('addr'):
+        lines += ['', '## Addressables  (unitygraph addr [regex])']
+        for path, f in fmts['addr']:
+            lines.append(f'- group {f["group"]}: {len(f["entries"])} entries')
+    if fmts.get('mat'):
+        by_shader = Counter()
+        from unitygraph import formats
+        for _, f in fmts['mat']:
+            by_shader[formats.shader_label(p, f['shader'])] += 1
+        lines += ['', f'## Materials ({len(fmts["mat"])}, unitygraph material <name>)',
+                  '- ' + ', '.join(f'{s}×{n}' for s, n in by_shader.most_common(8))]
     return '\n'.join(lines)
 
 
@@ -1975,6 +2020,10 @@ def refs_report(p, query, only_users=False):
         lines.append(f'  {u}{detail}')
     if len(users) > 60:
         lines.append(f'  …+{len(users) - 60}')
+    from unitygraph import formats
+    a = formats.addresses(p).get(guid)
+    if a:
+        lines.append(f'addressable: "{a[0]}" in group {a[1]}' + (f', labels {", ".join(a[2])}' if a[2] else ''))
     named = p.code_users.get(path)
     if named:
         by_cls = defaultdict(set)
@@ -2250,6 +2299,14 @@ def main(argv=None):
                                      'or "Leak.nailsRequired>3, boardedFlow<1"; "Class.field" shows the distribution')
     qu.add_argument('expr')
     qu.add_argument('--limit', type=int, default=60)
+    ip = sp.add_parser('input', help='Input System actions: maps, actions, bindings')
+    ip.add_argument('name', nargs='?', default='')
+    ui = sp.add_parser('ui', help='UI Toolkit: UXML element tree or USS selectors')
+    ui.add_argument('name')
+    ma = sp.add_parser('material', help='material: shader, textures, colors, unusual floats')
+    ma.add_argument('name')
+    ad = sp.add_parser('addr', help='Addressables: addresses, groups and labels (optional regex filter)')
+    ad.add_argument('pattern', nargs='?', default='')
     d = sp.add_parser('diff', help='semantic diff of scenes/prefabs against a git revision')
     d.add_argument('files', nargs='*', help='scene/prefab names or paths (default: every changed one)')
     d.add_argument('--rev', default='HEAD', help='base revision (default HEAD)')
@@ -2308,6 +2365,12 @@ def main(argv=None):
     elif args.cmd == 'query':
         from unitygraph import query
         print(query.report(p, args.expr, args.limit))
+    elif args.cmd in ('input', 'ui', 'material'):
+        from unitygraph import formats
+        print(formats.report(p, args.cmd, args.name))
+    elif args.cmd == 'addr':
+        from unitygraph import formats
+        print(formats.report_addr(p, args.pattern))
     elif args.cmd == 'anim':
         q = args.name.lower()
         cands = sorted((x for x, e in p.files.items() if e.get('ctrl')),

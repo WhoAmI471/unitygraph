@@ -22,7 +22,7 @@ classifiers = [
 Homepage = "https://github.com/WhoAmI471/unitygraph"
 
 [project.scripts]
-unitygraph = "unitygraph.core:main"
+unitygraph = "unitygraph.cli:main"
 
 [tool.setuptools.dynamic]
 version = { attr = "unitygraph.core.__version__" }
