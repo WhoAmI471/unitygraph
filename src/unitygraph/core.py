@@ -26,7 +26,7 @@ import time
 from collections import Counter, defaultdict
 
 __version__ = '0.1.0'
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 OUT_DIR = '.unitygraph'
 THIRD_PARTY = ['Assets/Packages/', 'Assets/Plugins/', 'Assets/ThirdParty/', 'Assets/Samples/',
                'Assets/TextMesh Pro/', 'Assets/AssetStoreTools/', 'Assets/_Recovery/']
@@ -584,6 +584,85 @@ def _asset_strings(src):
     return out
 
 
+_CS_KEYWORDS = {'if', 'for', 'foreach', 'while', 'switch', 'catch', 'using', 'lock', 'return', 'new', 'typeof',
+                'nameof', 'sizeof', 'default', 'base', 'this', 'when', 'fixed', 'checked', 'unchecked', 'stackalloc',
+                'get', 'set', 'add', 'remove', 'is', 'as', 'await', 'throw', 'else', 'do', 'in', 'out', 'ref', 'var'}
+_METHOD_HEAD = re.compile(r'(\w+)\s*(?:<[^<>{};]*>)?\s*\(((?:[^()]|\([^()]*\))*)\)\s*'
+                          r'(?:where\s[^{;]*)?(?::\s*(?:base|this)\s*\((?:[^()]|\([^()]*\))*\))?\s*(?:=>)?\s*$')
+_CALL = re.compile(r'(?:\b(\w+)\s*(?:\?\.|\.)\s*)?\b([A-Za-z_]\w*)\s*(?:<[^<>;(){}=]*>)?\s*\(')
+_GETCOMP_CALL = re.compile(r'\bGetComponent(?:InChildren|InParent)?\s*<\s*(?:\w+\.)*(\w+)\s*>\s*\(\s*\)\s*\??\.\s*(\w+)')
+_NAME_REF = re.compile(r'\bnameof\s*\(\s*(\w+)\s*\)|[+-]=\s*(?:\w+\s*\.\s*)?(\w+)\s*;')
+_READ = re.compile(r'(?=\b(\w+)\s*(?:\?\.|\.)\s*([A-Z]\w*)\b(?!\s*[(<\w]))')  # lookahead: a.B.C yields a.B and B.C
+_LOCAL = re.compile(r'\b([A-Z]\w*)(?:<[^<>;(){}]*>)?(?:\[\])?\??\s+([a-z_]\w*)\s*(?==|;|,|\)|\bin\b)')
+_VAR_NEW = re.compile(r'\bvar\s+(\w+)\s*=\s*(?:new\s+(\w+)|(?:\w+\s*\.\s*)?GetComponent\w*\s*<\s*(\w+)\s*>|'
+                      r'\(\s*([A-Z]\w*)\s*\))')
+
+
+def _params(sig):
+    """{name: type} from a parameter list."""
+    out = {}
+    for part in re.split(r',(?![^<]*>)', sig):
+        part = re.sub(r'=.*', '', part)
+        toks = [x for x in _norm_decl(part).split() if x not in ('this', 'ref', 'out', 'in', 'params', 'readonly')]
+        _, toks = _split_attrs(' '.join(toks))
+        toks = toks.split()
+        if len(toks) >= 2 and re.match(r'^\w+$', toks[-1]):
+            out[toks[-1]] = re.sub(r'<.*|\[\]|\?', '', toks[-2])
+    return out
+
+
+def _calls_in(body, params=None):
+    """Call sites in a method body ('Qualifier.Name' or 'Name'), capitalized member reads, names referenced
+    via nameof/+=, and the types of parameters and locals it declares (to resolve qualifiers later)."""
+    calls = set()
+    for q, name in _GETCOMP_CALL.findall(body):
+        calls.add(f'{q}.{name}')
+    for q, name in _CALL.findall(body):
+        if name in _CS_KEYWORDS or (q and q in ('new',)):
+            continue
+        calls.add(f'{q}.{name}' if q and q not in ('this', 'base') else name)
+    reads = {f'{q}.{n}' if q not in ('this', 'base') else n for q, n in _READ.findall(body)} - calls
+    refs = {a or b for a, b in _NAME_REF.findall(body)}
+    local = dict(params or {})
+    for t, n in _LOCAL.findall(body):
+        if t not in ('return', 'new', 'var'):
+            local.setdefault(n, t)
+    for m in _VAR_NEW.finditer(body):
+        local.setdefault(m.group(1), next(x for x in m.groups()[1:] if x))
+    return {'calls': sorted(calls), 'reads': sorted(reads), 'refs': sorted(r for r in refs if r and r not in _CS_KEYWORDS),
+            'locals': local}
+
+
+def _bodies(code, open_i, close_i):
+    """Methods, constructors and property accessors directly inside a type body, with their call sites."""
+    out, i, seg = [], open_i + 1, open_i + 1
+    while i < close_i:
+        ch = code[i]
+        if ch == '{':
+            end = _match_brace(code, i)
+            head = code[seg:i]
+            if not re.search(r'\b(class|struct|enum|interface|record|namespace)\b', head):
+                m = _METHOD_HEAD.search(head)
+                name = m.group(1) if m else (re.findall(r'(\w+)\s*$', head) or [''])[0]  # property accessors
+                if name and name not in _CS_KEYWORDS:
+                    out.append(dict(_calls_in(code[i + 1:end], _params(m.group(2)) if m else None), n=name,
+                                    line=code.count('\n', 0, seg + len(head) - len(head.lstrip())) + 1))
+            i = seg = end + 1
+            continue
+        if ch == ';':
+            head = code[seg:i]
+            arrow = head.find('=>')
+            if arrow > 0:  # expression-bodied member
+                m = _METHOD_HEAD.search(head[:arrow + 2])
+                name = m.group(1) if m else (re.findall(r'(\w+)\s*$', head[:arrow]) or [''])[0]
+                if name and name not in _CS_KEYWORDS and not re.search(r'(?<![=!<>])=(?![=>])', head[:arrow]):
+                    out.append(dict(_calls_in(head[arrow + 2:], _params(m.group(2)) if m else None), n=name,
+                                    line=code.count('\n', 0, seg + len(head) - len(head.lstrip())) + 1))
+            seg = i + 1
+        i += 1
+    return out
+
+
 def parse_cs(src):
     docs = {m.group(2): _summary(m.group(1)) for m in _DOC_RE.finditer(src)}
     code = _CS_NOISE.sub(_blank, src)
@@ -608,6 +687,12 @@ def parse_cs(src):
             t['enum'] = _enum_values(body)
         else:
             t['fields'], t['props'], t['methods'] = _members(body, name)
+            t['bodies'] = _bodies(code, open_i, close_i)
+            # nameof() in member declarations, e.g. [SyncVar(hook = nameof(OnHolderChanged))]
+            decl = _flatten(body)
+            if 'nameof' in decl:
+                t['bodies'].append({'n': '(declarations)', 'line': t['line'], 'calls': [], 'reads': [],
+                                    'refs': sorted(set(re.findall(r'\bnameof\s*\(\s*(\w+)\s*\)', decl))), 'locals': {}})
         types.append(t)
     for t in types:
         outer = [o for o in types if o is not t and o['span'][0] < t['span'][0] and t['span'][1] <= o['span'][1]]
@@ -678,12 +763,15 @@ class Project:
         self.cfg = json.load(open(cfg_path, encoding='utf-8')) if os.path.exists(cfg_path) else {}
         self.extra_tp = self.cfg.get('third_party', [])
         self.cache_path = os.path.join(self.out, 'cache.pkl')
-        self.cache = {'v': CACHE_VERSION, 'meta': {}, 'pkgmeta': {}, 'pkgkey': None, 'files': {}, 'cs': {}}
+        # parsed data depends on the parser's code: a changed core.py (new release, local edit) reparses everything
+        st = os.stat(__file__)
+        key = f'{CACHE_VERSION}:{__version__}:{st.st_size}:{st.st_mtime_ns}'
+        self.cache = {'v': key, 'meta': {}, 'pkgmeta': {}, 'pkgkey': None, 'files': {}, 'cs': {}}
         if os.path.exists(self.cache_path):
             try:
                 with open(self.cache_path, 'rb') as f:
                     c = pickle.load(f)
-                if c.get('v') == CACHE_VERSION:
+                if c.get('v') == key:
                     self.cache = c
             except Exception:
                 pass
@@ -843,18 +931,21 @@ class Project:
                         # the file named after the class is the main part (where Unity looks for it)
                         prev['file'], prev['line'] = p, t['line']
                         prev['files'].insert(0, p)
-                        for k in ('fields', 'props', 'methods', 'strs'):
-                            prev[k] = t[k] + [x for x in prev[k] if x not in t[k]]
+                        for k in ('fields', 'props', 'methods', 'strs', 'bodies'):
+                            prev[k] = [dict(x, file=p) if k == 'bodies' else x for x in t.get(k, [])] + \
+                                [x for x in prev.get(k, []) if x not in t.get(k, [])]
                     else:
                         prev['files'].append(p)
-                        for k in ('fields', 'props', 'methods', 'strs'):
-                            prev[k] = prev[k] + [x for x in t[k] if x not in prev[k]]
+                        for k in ('fields', 'props', 'methods', 'strs', 'bodies'):
+                            prev[k] = prev.get(k, []) + [dict(x, file=p) if k == 'bodies' else x
+                                                         for x in t.get(k, []) if x not in prev.get(k, [])]
                     for k in ('bases', 'attrs'):
                         prev[k] = prev[k] + [x for x in t[k] if x not in prev[k]]
                     prev['idents'] = prev['idents'] | t['idents']
                     prev['summary'] = prev['summary'] or t['summary']
                     continue
-                t = dict(t, full=full, file=p, files=[p], project=not tp)
+                t = dict(t, full=full, file=p, files=[p], project=not tp,
+                         bodies=[dict(b, file=p) for b in t.get('bodies', [])])
                 self.classes[full] = t
                 self.by_name[t['name']].append(full)
             guid = self.path2guid.get(p)
@@ -2153,6 +2244,16 @@ def main(argv=None):
     an = sp.add_parser('anim', help='animator controller: params, layers, states, blend trees, transitions')
     an.add_argument('name')
     sp.add_parser('graph', help='write .unitygraph/graph.html, an interactive graph to open in a browser')
+    ca = sp.add_parser('calls', help='call graph: Class.Method (callers and callees), Method, or Class (fan-in)')
+    ca.add_argument('name')
+    qu = sp.add_parser('query', help='objects whose component fields match, e.g. "Carryable.itemType=Hook" '
+                                     'or "Leak.nailsRequired>3, boardedFlow<1"; "Class.field" shows the distribution')
+    qu.add_argument('expr')
+    qu.add_argument('--limit', type=int, default=60)
+    d = sp.add_parser('diff', help='semantic diff of scenes/prefabs against a git revision')
+    d.add_argument('files', nargs='*', help='scene/prefab names or paths (default: every changed one)')
+    d.add_argument('--rev', default='HEAD', help='base revision (default HEAD)')
+    d.add_argument('--to', help='target revision (default: working tree)')
     args = ap.parse_args(argv)
 
     p = Project(find_root(args.root), args.verbose)
@@ -2198,6 +2299,15 @@ def main(argv=None):
     elif args.cmd == 'graph':
         path, n, m = write_graph_html(p)
         print(f'{n} nodes, {m} edges → {path}')
+    elif args.cmd == 'diff':
+        from unitygraph import diff
+        print(diff.report(p, args.files, args.rev, args.to))
+    elif args.cmd == 'calls':
+        from unitygraph import calls
+        print(calls.report(p, args.name))
+    elif args.cmd == 'query':
+        from unitygraph import query
+        print(query.report(p, args.expr, args.limit))
     elif args.cmd == 'anim':
         q = args.name.lower()
         cands = sorted((x for x, e in p.files.items() if e.get('ctrl')),
@@ -2206,5 +2316,7 @@ def main(argv=None):
         print(report_controller(p, hits[0]) if hits else f'no animator controller matches "{args.name}"')
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == '__main__':  # `python core.py ...`: run as the package so sibling modules share one core
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from unitygraph.core import main as _main
+    _main()

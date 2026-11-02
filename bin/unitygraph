@@ -1,11 +1,11 @@
 #!/bin/sh
-# Plugin entry point: Claude Code puts this bin/ directory on the Bash PATH.
-# Runs the bundled script with the first real Python it finds (skipping the Windows Store stub).
-core="$(cd "$(dirname "$0")/../src/unitygraph" && pwd)/core.py"
+# Plugin entry point: Claude Code puts this bin/ directory on the Bash PATH, and the plugin's hook calls it.
+# Runs the bundled package with the first real Python it finds (skipping the Windows Store stub).
+entry="$(cd "$(dirname "$0")/../src/unitygraph" && pwd)/__main__.py"
 for py in python3 python py; do
   path="$(command -v "$py" 2>/dev/null)" || continue
   case "$path" in *WindowsApps*) continue ;; esac
-  exec "$py" "$core" "$@" </dev/null
+  exec "$py" "$entry" "$@"
 done
 echo "unitygraph: Python 3.9+ not found on PATH" >&2
 exit 1

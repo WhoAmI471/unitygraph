@@ -1,0 +1,18 @@
+{
+  "description": "unitygraph guard: deny whole-file reads of large Unity YAML and point to the matching query",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/unitygraph\" guard",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
