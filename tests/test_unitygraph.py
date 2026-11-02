@@ -211,6 +211,29 @@ class MiniProjectTest(unittest.TestCase):
                 f.write(text)
 
 
+class ValueRenderingTest(unittest.TestCase):
+    """Unity serializes float.PositiveInfinity as "Infinity"; rendering must not crash on it."""
+
+    def setUp(self):
+        sys.path.insert(0, os.path.join(HERE, '..', 'src'))
+        from unitygraph import core
+        self.core = core
+
+    def test_numbers(self):
+        f = self.core._fmt_num
+        self.assertEqual(f('3'), '3')
+        self.assertEqual(f('0.35'), '0.35')
+        self.assertEqual(f('Infinity'), 'inf')
+        self.assertEqual(f('-Infinity'), '-inf')
+        self.assertEqual(f('NaN'), 'nan')
+        self.assertEqual(f('1e20'), '1e+20')
+
+    def test_colors_with_infinity(self):
+        ctx = self.core.Ctx(None, {'gos': {}, 'trs': {}, 'st': {}, 'comps': {}, 'pis': {}}, {})
+        self.assertEqual(ctx.value({'r': '1', 'g': '0.5', 'b': '0', 'a': '2'}), '#FF8000FF')  # HDR alpha clamps
+        self.assertIn('inf', ctx.value({'r': 'Infinity', 'g': '0', 'b': '0', 'a': '1'}))
+
+
 class GuardTest(unittest.TestCase):
     """The PreToolUse hook: whole-file reads of big Unity YAML are denied, targeted ones pass."""
 

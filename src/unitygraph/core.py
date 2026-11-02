@@ -25,7 +25,7 @@ import sys
 import time
 from collections import Counter, defaultdict
 
-__version__ = '0.2.1'
+__version__ = '0.2.2'
 CACHE_VERSION = 6
 OUT_DIR = '.unitygraph'
 THIRD_PARTY = ['Assets/Packages/', 'Assets/Plugins/', 'Assets/ThirdParty/', 'Assets/Samples/',
@@ -1186,7 +1186,8 @@ def _fmt_num(v):
     f = _num(v)
     if f is None:
         return str(v)
-    return str(int(f)) if f == int(f) and abs(f) < 1e15 else f'{f:.4g}'
+    # range check first: int() of Infinity (serialized as "Infinity") raises, and NaN fails it too
+    return str(int(f)) if abs(f) < 1e15 and f == int(f) else f'{f:.4g}'
 
 
 def _is_empty(v):
@@ -1250,8 +1251,8 @@ class Ctx:
                 try:
                     rgb = ''.join(f'{max(0, min(255, round(float(v[k]) * 255))):02X}' for k in 'rgb')
                     a = float(v['a'])
-                    return '#' + rgb + ('' if a == 1 else f'{round(a * 255):02X}')
-                except ValueError:
+                    return '#' + rgb + ('' if a == 1 else f'{max(0, min(255, round(a * 255))):02X}')
+                except (ValueError, OverflowError):  # Infinity/NaN channels: fall back to {r=…, …}
                     pass
             if depth > 2:
                 return '{…}'

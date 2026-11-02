@@ -1,7 +1,7 @@
 {
   "name": "unitygraph",
   "displayName": "unitygraph",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Navigate Unity projects without reading raw YAML: compact, queryable summaries of scenes, prefabs, C# types, animators and asset references",
   "author": {
     "name": "WhoAmI471",
