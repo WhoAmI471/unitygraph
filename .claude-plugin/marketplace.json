@@ -1,0 +1,15 @@
+{
+  "name": "whoami471",
+  "description": "Claude Code plugins by WhoAmI471",
+  "owner": {
+    "name": "WhoAmI471",
+    "url": "https://github.com/WhoAmI471"
+  },
+  "plugins": [
+    {
+      "name": "unitygraph",
+      "source": "./",
+      "description": "Compact, queryable index of a Unity project so Claude reads summaries instead of 15 MB scene files"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unitygraph"
+dynamic = ["version"]
+description = "Offline, token-cheap index of a Unity project (scenes, prefabs, C#, animators) for AI coding agents"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [{ name = "WhoAmI471" }]
+keywords = ["unity", "gamedev", "claude-code", "ai-agents", "yaml", "index"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries",
+    "Environment :: Console",
+]
+
+[project.urls]
+Homepage = "https://github.com/WhoAmI471/unitygraph"
+
+[project.scripts]
+unitygraph = "unitygraph.core:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "unitygraph.core.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

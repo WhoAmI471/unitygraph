@@ -1,0 +1,14 @@
+{
+  "name": "unitygraph",
+  "displayName": "unitygraph",
+  "version": "0.1.0",
+  "description": "Navigate Unity projects without reading raw YAML: compact, queryable summaries of scenes, prefabs, C# types, animators and asset references",
+  "author": {
+    "name": "WhoAmI471",
+    "url": "https://github.com/WhoAmI471"
+  },
+  "homepage": "https://github.com/WhoAmI471/unitygraph",
+  "repository": "https://github.com/WhoAmI471/unitygraph",
+  "license": "MIT",
+  "keywords": ["unity", "gamedev", "scenes", "prefabs", "index", "tokens"]
+}
