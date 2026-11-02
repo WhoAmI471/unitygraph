@@ -12,6 +12,10 @@ every reference to a name, and prints short summaries the agent can actually use
 | A 15.5 MB generated scene (3.7k GameObjects, 3k prefab instances) | ~4M tokens | 22 KB full hierarchy, 8 KB at `--depth 2` |
 | "Where is `Leak` used?" | grep through megabytes of YAML by GUID | one 4-line answer |
 
+On a real project, answering eight typical questions took **~25× fewer tokens** (median 16× per question;
+a scene diff that is 5.8M tokens as `git diff` is 0.8k). See [benchmarks](benchmarks/README.md) for the method
+and the questions where the gain is small.
+
 - **No editor required.** Plain Python 3.9+, standard library only. Works on Windows, macOS, Linux.
 - **Always fresh.** Every query refreshes an incremental cache (`.unitygraph/` in the project root), so answers match the files on disk.
 - **Built for reading.** Names instead of IDs: enum values by name, `@Object` scene references, `→Asset` asset references, clip names inside FBX files, layer names for masks.

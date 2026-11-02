@@ -1,0 +1,58 @@
+[
+  {
+    "task": "Project overview: systems and what each class does",
+    "baseline": ["find Assets/Scripts -name '*.cs' -exec head -30 {} +"],
+    "unitygraph": [["map"]],
+    "note": "baseline: first 30 lines of each of 98 scripts"
+  },
+  {
+    "task": "What is on the ship in Voyage_Brig (hierarchy, 2 levels)",
+    "baseline": ["grep -E 'm_Name:|m_Father:|m_Children:|^  - \\{fileID' Assets/Scenes/Voyage_Brig.unity"],
+    "unitygraph": [["scene", "Voyage_Brig", "--path", "Ship", "--depth", "2"]],
+    "note": "baseline gets names and parent links only, still without components"
+  },
+  {
+    "task": "Where is the Leak script used, with which settings",
+    "baseline": ["grep -rl 3f2fb23161110e845850ecd2d842b55e Assets --include=*.unity --include=*.prefab",
+                 "grep -h -A28 'guid: 3f2fb23161110e845850ecd2d842b55e' Assets/Scenes/*.unity"],
+    "unitygraph": [["where", "Leak"], ["query", "Leak.nailsRequired"]],
+    "note": "baseline field values reference objects by fileID"
+  },
+  {
+    "task": "Which item types lie on each ship",
+    "baseline": ["grep -h -A12 'guid: 39e4fdf900d3b5740a6939daf5fbf426' Assets/Scenes/*.unity Assets/Prefabs/*.prefab",
+                 "sed -n 1,20p Assets/Scripts/Items/Carryable.cs"],
+    "unitygraph": [["query", "Carryable.itemType"]],
+    "note": "baseline gets itemType: 5 and has to map numbers to the enum"
+  },
+  {
+    "task": "Who reads Carryable.IsHeld",
+    "baseline": ["grep -rn 'IsHeld' Assets/Scripts"],
+    "unitygraph": [["calls", "Carryable.IsHeld"]],
+    "note": "grep is already cheap here; unitygraph adds the enclosing methods"
+  },
+  {
+    "task": "Player prefab: components and settings",
+    "baseline": ["cat Assets/Prefabs/Player.prefab"],
+    "unitygraph": [["prefab", "Player"]],
+    "note": ""
+  },
+  {
+    "task": "How the Anne Locomotion animator is wired",
+    "baseline": ["cat 'Assets/Animations/Characters_Anne Locomotion.controller'"],
+    "unitygraph": [["anim", "Anne Locomotion"]],
+    "note": "baseline clips are fileIDs inside the FBX"
+  },
+  {
+    "task": "Input bindings",
+    "baseline": ["cat Assets/InputSystem_Actions.inputactions"],
+    "unitygraph": [["input"]],
+    "note": ""
+  },
+  {
+    "task": "What changed in Voyage_Brig in commit 5d3c7fe",
+    "baseline": ["git diff 798fc4f 5d3c7fe -- Assets/Scenes/Voyage_Brig.unity"],
+    "unitygraph": [["diff", "Voyage_Brig", "--rev", "798fc4f", "--to", "5d3c7fe"]],
+    "note": "a generated scene: the builder rewrites every fileID"
+  }
+]
